@@ -15,8 +15,8 @@ use std::{
 #[derive(Debug)]
 pub struct Queue<T, const SIZE: usize> {
     buf: UnsafeArr<T, SIZE>,
-    insert_sems: UnsafeArr<Semaphore, SIZE>,
-    pop_sems: UnsafeArr<Semaphore, SIZE>,
+    enqueue_sems: UnsafeArr<Semaphore, SIZE>,
+    dequeue_sems: UnsafeArr<Semaphore, SIZE>,
     lower_bound_counter: AtomicIsize,
     upper_bound_counter: AtomicIsize,
     head: AtomicUsize,
@@ -35,10 +35,11 @@ where
     const MASK: usize = SIZE - 1;
     pub fn new() -> (Sender<T, SIZE>, Receiver<T, SIZE>) {
         assert!(SIZE & (SIZE - 1) == 0, "SIZE: {} is not a power of 2", SIZE);
+        assert!(SIZE < std::isize::MAX as usize, "SIZE is too large");
         let queue = Arc::new(Queue::<T, SIZE> {
             buf: UnsafeArr::new(|_| T::default()),
-            insert_sems: UnsafeArr::new(|_| Semaphore::new(1, 1)),
-            pop_sems: UnsafeArr::new(|_| Semaphore::new(0, 1)),
+            enqueue_sems: UnsafeArr::new(|_| Semaphore::new(1, 1)),
+            dequeue_sems: UnsafeArr::new(|_| Semaphore::new(0, 1)),
             lower_bound_counter: AtomicIsize::new(0),
             upper_bound_counter: AtomicIsize::new(0),
             head: AtomicUsize::new(0),
@@ -63,9 +64,9 @@ where
     fn enqueue(&self, elem: T) -> Result<(), QueueErr> {
         if test_increment_retest(&self.upper_bound_counter, 1, SIZE, Acquire) {
             let index = (self.tail.fetch_add(1, Relaxed)) & Self::MASK;
-            self.insert_sems[index].acquire_permits(1).unwrap();
+            self.enqueue_sems[index].acquire_permits(1).unwrap();
             self.buf.inner()[index] = elem;
-            self.pop_sems[index].add_permits(1).unwrap();
+            self.dequeue_sems[index].add_permits(1).unwrap();
             self.lower_bound_counter.fetch_add(1, Release);
 
             Ok(())
@@ -77,9 +78,9 @@ where
     fn dequeue(&self) -> Result<T, QueueErr> {
         if test_decrement_retest(&self.lower_bound_counter, 1, Acquire) {
             let index = (self.head.fetch_add(1, Relaxed)) & Self::MASK;
-            self.pop_sems[index].acquire_permits(1).unwrap();
+            self.dequeue_sems[index].acquire_permits(1).unwrap();
             let popped = replace(&mut self.buf.inner()[index], T::default());
-            self.insert_sems[index].add_permits(1).unwrap();
+            self.enqueue_sems[index].add_permits(1).unwrap();
             self.upper_bound_counter.fetch_sub(1, Release);
 
             Ok(popped)
@@ -197,13 +198,12 @@ where
                 self.queue.receiver_op_failure_count.fetch_add(1, Relaxed);
 
                 loop {
-                    let result = self.queue.dequeue();
-                    if result.is_ok() {
-                        self.queue.receiver_op_failure_count.fetch_min(1, Relaxed);
-                        return Ok(result.unwrap());
-                    }
-                    if result.is_err() {
-                        match deadline {
+                    match self.queue.dequeue() {
+                        Ok(elem) => {
+                            self.queue.receiver_op_failure_count.fetch_min(1, Relaxed);
+                            return Ok(elem);
+                        }
+                        Err(_) => match deadline {
                             Some(d) => {
                                 if Instant::now() >= d {
                                     if self.queue.are_receivers_blocked() {
@@ -213,13 +213,11 @@ where
                                 }
                             }
                             None => {
-                                println!("{}", self.queue.receiver_op_failure_count.load(Relaxed));
-
                                 if self.queue.are_receivers_blocked() {
                                     return Err(ReceiverErr::QueueEmpty);
                                 }
                             }
-                        }
+                        },
                     }
                 }
             }
@@ -358,3 +356,20 @@ impl Semaphore {
 
 #[derive(Debug)]
 enum SemaphoreErr {}
+
+fn pv_test_expanded(s: AtomicIsize, critical_section: impl Fn()) {
+    'cycle_thread: loop {
+        let mut tdr = false;
+        while !tdr {
+            if s.load(Relaxed) - 1 >= 0 {
+                if s.fetch_sub(1, Acquire) >= 1 {
+                    tdr = true;
+                } else {
+                    s.fetch_add(1, Relaxed);
+                }
+            }
+        }
+        critical_section();
+        s.fetch_add(1, Release);
+    }
+}

@@ -18,7 +18,7 @@ fn main() {
                 for i in 0..1000 {
                     let timeout = std::time::Duration::new(5, 0);
                     match producer.send(i, Some(timeout)) {
-                        Err(e) => println!("{:?}", e),
+                        Err(e) => println!("PRODUCER: {:?}", e),
                         _ => println!("INSERT: {}", i),
                     }
                 }
@@ -30,7 +30,7 @@ fn main() {
                 for i in 1000..2000 {
                     let timeout = std::time::Duration::new(5, 0);
                     match producer.send(i, Some(timeout)) {
-                        Err(e) => println!("{:?}", e),
+                        Err(e) => println!("PRODUCER: {:?}", e),
                         _ => println!("INSERT: {}", i),
                     }
                 }
@@ -44,7 +44,7 @@ fn main() {
                     match consumer.receive(None) {
                         Ok(v) => println!("POP {}", v),
                         Err(e) => {
-                            println!("{:?}", e);
+                            println!("CONSUMER: {:?}", e);
                             return;
                         }
                     }
