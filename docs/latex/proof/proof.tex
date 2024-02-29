@@ -1,0 +1,138 @@
+\documentclass[preview,border=2pt,convert={density=300,outext=.png}]{standalone}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage[latin1]{inputenc}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary {positioning}
+
+\lstdefinestyle{mystyle}{
+	showspaces=false,
+	tabsize=2,
+}
+\lstset{style=mystyle}
+
+\newtheorem*{remark}{Claim}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}{Proposition}
+\newtheorem{corollary}{Corollary}
+
+\begin{document}
+	\begin{theorem}
+		The replace-add implementation of PV satisfies the PV property
+	
+	\begin{proof}
+		Assume each PE executes with only a finite delay between instructions. Expanding the invocations of $P$ and $V$, we obtain the following code for each PE, where \textit{TDR}, $Temp_1$, and $Temp_2$ are local variables.\\
+	
+
+\noindent\textbf{comment:} Initially $S = 1$
+\begin{lstlisting}[mathescape=true]
+1	$\textbf{cycle}$ {
+2		$\textbf{repeat }TDR \leftarrow false$
+3			$Temp_1 \leftarrow S - 1$
+4			$\textbf{if }Temp_1 \geq 0 \textbf{ then}$ {
+5				$Temp_2 \leftarrow RepAdd(S, -1)$
+6				$\textbf{if } Temp_2 \geq 0$ $\textbf{then}$
+7					$TDR \leftarrow true$
+8				$\textbf{else } RepAdd(S, 1)$ }
+9		$\textbf{until } TDR$
+10	$critical$ $section$
+11	$RepAdd(S, 1)$ }
+\end{lstlisting}
+Continuing with our proof, we make the following
+	
+	\begin{remark}
+		One may assume, without loss of generality, that, during each time step, exactly one PE executes one line of PVTest.
+	\end{remark}
+	\begin{proof}
+		By the serialization principle we may assume that during each time step exactly one PE executes exactly one machine instruction. That is, we can assume a serial execution order $I_1, I_2, ...$ where each $I_j$ represents execution of one machine instruction by one PE; of course, the instructions executed by each PE are in the sequence determined by the $PVTest$ code. Note that we can interchange any two consecutive instructions $I_j$ and $I_{j+1}$ executed by two different PEs provided that at most one of them references a public variable. Thus, since each line of \textit{PVTest} contains at most one reference to $S$, there exists a sequence of interchanges that yields an execution order in which each line $PVTest$ is executed indivisibly. This proves our claim.
+	\end{proof}
+	
+	To describe the state of a PE at time $T$, we introduce terminology for specifying each PE's location counter and the value of the shared variable $S$. For $1 \leq j \leq 11$, PE$_i$ is said to be $at$ $j$ if the next instruction to be executed by PE$_i$ is line $j$ of the program above. We write $L_i(T) = j$ to indicate that, at time $T$, PE$_i$ is $at$ $j$. For $j = 4, 6,$ and $9$, the three decision points of the program, we distinguish to subcases: PE$_i$ is at $j+$ (respectively, $at j-$) if PE$_i$ is at $j$ and the condition to be tested in line $j$ is true (respectively, false). The value of $S$ at time $T$ is denoted $S(T)$ and equals $1 + \sum{c_i(T)}$, where 1 is the initial value of $S$ and $c_i(T)$ is the cumulative contribution to $S$ caused by actions of PE$_i$ completed before time $T$. This latter quantity equals \[n_i(T, 8) + n_i(T, 11) - n_i(T, 5)\] where $n_i(T, j)$ is the number of executions of line $j$ by PE$_i$ completed before time $T$.
+	
+	A simple analysis of $PVTest$ as a sequential program yields
+	\begin{proposition}
+		For all times T and PE indices i, $c_i(T)$ is 0 or -1. Specifically, $c_i(T)$ = -1 if and only if $L_i(T)$ = 6, 7, 8, 9+, 10, or 11.
+	\end{proposition}
+
+	\begin{corollary}
+		At any time T, -\#PE $<$ S(T) $\leq$ 1.
+	\end{corollary}
+	
+	We now prove the easy half of the theorem, namely, that mutual exclusion is guaranteed. We call a PE \textit{critical at time} $T$ if $L_i(T)$ = 6+, 7, 9+, 10, or 11 and define $N(T)$ to be the number of such PEs.
+	
+	\begin{proposition}
+		At any time T, N(T) $\leq$ 1.
+	\end{proposition}
+	
+	\begin{proof}
+		If not, there exists a time $t_0$ such that $N(t_0)$ = 1 and $N(t_0 + 1)$ = 2. Thus, for some processor PE$_i$, $L_i(t_0)$ = 5 and $L_i(t_0 + 1)$ = 6+. But, by Proposition 1, any critical PE contributes -1 to $S$, and thus $S(t_0)$ $<$ 1. This contradicts the statement that PE$_i$ makes a transition from 5 to 6+ at time $t_0$.
+	\end{proof}
+	
+	\begin{corollary}
+		At any time T, at most one PE can be executing its critical section.
+	\end{corollary}
+	
+	To complete the proof of our theorem, we must show that some time after any reachable state is established, some PE$_i$ will enter the critical section. The key to this is to verify the following:
+	
+	\begin{lemma}
+		For any time T there exists a time T' $\geq$ T such that S(T') = 1.
+	\end{lemma}
+	
+	\begin{proof}
+		Suppose $S(t) < 1$ for $t \geq T$. Then, after time $T$, no PE can make the transition from 3 to state 4+ or from state 5 to state 6+. Therefore, the flow graph for $PVTest$ becomes 
+		\begin{center}
+			\begin{tikzpicture}
+				\node (1) at (0, 2) {6+};
+				\node (2) [right of=1] {7};
+				\node (3) [right of=2] {9+};
+				\node (4) [right of=3] {10};
+				\node (5) [right of=4] {11};
+				\node (6) [right of=5] {2};
+				\node (7) [right of=6] {3};
+				\node (8) [right of=7] {4-};
+				\node (9) [right of=8] {9-};
+				
+				\node (10) [below of=6] {1};
+				
+				\node (11) at (8, 0) {8};
+				\node (12) [left of=11] {6-};
+				\node (13) [left of=12] {5};
+				\node (14) [left of=13] {4+};
+				
+				\draw[->] (1) -- (2);
+				\draw[->] (2) -- (3);
+				\draw[->] (3) -- (4);
+				\draw[->] (4) -- (5);
+				\draw[->] (5) -- (6);
+				\draw[->] (6) -- (7);
+				\draw[->] (7) -- (8);
+				\draw[->] (8) -- (9);
+				
+				\draw[->] (14) -- (13);
+				\draw[->] (13) -- (12);
+				\draw[->] (12) -- (11);
+				
+				\draw (9) -- (8.5, 2);
+				\draw (8.5, 2) -- (8.5, 2.5);
+				\draw (8.5, 2.5) -- (5, 2.5);
+				\draw[->] (5, 2.5) -- (6);
+				
+				\draw[->] (11) -- (9);
+				\draw[->] (10) -- (6);
+			\end{tikzpicture}
+		\end{center}
+		
+		Hence, there exists $T' \geq T$ such that at time $T'$ all PEs are at 2, 3, 4-, or 9-, and thus, by Proposition 1, $c_i(T')$ = 0 for all $i$. But this implies that $S(T')$ = 1, as desired.
+	\end{proof}
+	
+	Finally, if $T'$ is as in the lemma, it is easy to see that after time $T'$ the first PE to execute line 5 becomes critical and then enters its critical section.
+\end{proof}
+\end{theorem}
+	
+\end{document}
